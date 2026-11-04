@@ -634,25 +634,31 @@ private:
     // Residu (courants sortants) et jacobienne. absSum accumule la somme des
     // |courants| par noeud : un residu ne se juge que relativement au courant
     // que le noeud brasse reellement.
+    //
+    // ECRIT A PLAT, EXPRES : des variables locales, pas de tableau ni de lambda.
+    // C'est la fonction la plus appelee du moteur, et sur un coeur a execution
+    // dans l'ordre (A53) chaque chargement depuis la memoire se paie ; la forme
+    // generique y coutait 650 ns. L'ORDRE des additions est celui des composants
+    // (echelle, diodes, condensateurs 0 a 5, T1, T2) et il faut le garder : il
+    // fixe les arrondis, donc la sortie au bit pres en flags stricts.
     void assemble(const double* v, double vm1,
                   double vm2, double v86, bool d86, double vcc,
                   double* F, double J[N][N], double* absSum) const
     {
         ++work_;
-        for (int i = 0; i < N; ++i)
-        {
-            F[i] = kGmin * v[i]; absSum[i] = std::fabs(F[i]);
-            for (int j = 0; j < N; ++j) J[i][j] = 0.0f;
-            J[i][i] = kGmin;
+        const double b1 = v[B1], c1 = v[C1], b2 = v[B2], c2 = v[C2];
+        double f0 = kGmin * b1, f1 = kGmin * c1, f2 = kGmin * b2, f3 = kGmin * c2;
+        double a0 = std::fabs(f0), a1 = std::fabs(f1), a2 = std::fabs(f2), a3 = std::fabs(f3);
+        double j00 = kGmin, j11 = kGmin, j22 = kGmin, j33 = kGmin;
+
+        {   // les echelles et R9/R13
+            const double gc = 1.0 / kRc;
+            double i0;
+            i0 = gR1_ * (b1 - vm1); f0 += i0; a0 += std::fabs(i0); j00 += gR1_;
+            i0 = gR2_ * (b2 - vm2); f2 += i0; a2 += std::fabs(i0); j22 += gR2_;
+            i0 = gc * (c1 - vcc);   f1 += i0; a1 += std::fabs(i0); j11 += gc;
+            i0 = gc * (c2 - vcc);   f3 += i0; a3 += std::fabs(i0); j33 += gc;
         }
-        auto res = [&](int a, double g, double src) {          // vers une source
-            const double i0 = g * (v[a] - src);
-            F[a] += i0; absSum[a] += std::fabs(i0); J[a][a] += g;
-        };
-        res(B1, gR1_, vm1);                // echelle -> base 1
-        res(B2, gR2_, vm2);                // echelle -> base 2
-        res(C1, 1.0 / kRc, vcc);           // R9  -> collecteur 1
-        res(C2, 1.0 / kRc, vcc);           // R13 -> collecteur 2
         if (d86)
         {   // D1 -> R10 -> base 1 et D2 -> R11 -> base 2, anodes reunies sur le
             // net 86 dont la tension vient de l'exterieur (le net 63 du LFO,
@@ -662,8 +668,8 @@ private:
             // laissait un 220k vers la masse sur chaque base des que le net 63
             // passait sous 0,7 V. Ce n'est pas ce que fait une diode.
             double I, dI, iSum = 0.0;
-            dioR(v86, v[B1], kRd, vd86_[0], I, dI); F[B1] -= I; absSum[B1] += std::fabs(I); J[B1][B1] -= dI; iSum += I;
-            dioR(v86, v[B2], kRd, vd86_[1], I, dI); F[B2] -= I; absSum[B2] += std::fabs(I); J[B2][B2] -= dI; iSum += I;
+            dioR(v86, b1, kRd, vd86_[0], I, dI); f0 -= I; a0 += std::fabs(I); j00 -= dI; iSum += I;
+            dioR(v86, b2, kRd, vd86_[1], I, dI); f2 -= I; a2 += std::fabs(I); j22 -= dI; iSum += I;
             i86_ = iSum;        // courant tire au net 86, donc au net 63 du LFO
         }
 
@@ -676,62 +682,72 @@ private:
         // regeneratif il sonne numeriquement, et Newton le paie. Il n'est donc
         // employe que la ou Euler arriere se trompe : l'approche lente du
         // seuil, dont il amortissait le mode regeneratif marginal.
-        auto cap = [&](int k, int a, int b) {
-            const double ic = capCurrent(k, v, a, b);
-            const double g  = gCap_[k];
-            F[a] += ic; if (b >= 0) F[b] -= ic;
-            absSum[a] += std::fabs(ic); if (b >= 0) absSum[b] += std::fabs(ic);
-            J[a][a] += g;
-            if (b >= 0) { J[a][b] -= g; J[b][b] += g; J[b][a] -= g; }
-        };
-        cap(0, C1, B2);            // couplage croise
-        cap(1, C2, B1);
-        cap(2, B1, -1);            // vers la masse
-        cap(3, B2, -1);
-        cap(4, B1, C1);
-        cap(5, B2, C2);
+        const double g0 = gCap_[0], g1 = gCap_[1], g2 = gCap_[2], g4 = gCap_[4];
+        const double ic0 = capI(0, c1 - b2), ic1 = capI(1, c2 - b1), ic2 = capI(2, b1),
+                     ic3 = capI(3, b2),      ic4 = capI(4, b1 - c1), ic5 = capI(5, b2 - c2);
+        const double n0 = std::fabs(ic0), n1 = std::fabs(ic1), n2 = std::fabs(ic2),
+                     n3 = std::fabs(ic3), n4 = std::fabs(ic4), n5 = std::fabs(ic5);
+        f1 += ic0; f2 -= ic0; a1 += n0; a2 += n0; j11 += g0; j22 += g0;   // couplage croise
+        f3 += ic1; f0 -= ic1; a3 += n1; a0 += n1; j33 += g1; j00 += g1;
+        f0 += ic2;            a0 += n2;           j00 += g2;              // vers la masse
+        f2 += ic3;            a2 += n3;           j22 += g2;
+        f0 += ic4; f1 -= ic4; a0 += n4; a1 += n4; j00 += g4; j11 += g4;
+        f2 += ic5; f3 -= ic5; a2 += n5; a3 += n5; j22 += g4; j33 += g4;
+        double j01 = -g4, j10 = -g4, j23 = -g4, j32 = -g4;
+        const double j12 = -g0, j21 = -g0, j30 = -g1, j03 = -g1;
 
-        bjt(v, B1, C1, F, J, absSum);
-        bjt(v, B2, C2, F, J, absSum);
         // Pas de stockage de charge (TF / TR de Gummel-Poon) : essaye pour la fin
         // de mort, sans effet sur le train de clics ni sur rien d'autre jusqu'a
         // TR = 300 ns. Retire.
+        Bjt q;
+        bjt(b1, b1 - c1, q);
+        f0 += q.Ib; f1 += q.Ic; a0 += q.absB; a1 += q.absC;
+        j00 += q.jbb; j01 -= q.jbc; j10 += q.jcb; j11 += q.jcc;
+        bjt(b2, b2 - c2, q);
+        f2 += q.Ib; f3 += q.Ic; a2 += q.absB; a3 += q.absC;
+        j22 += q.jbb; j23 -= q.jbc; j32 += q.jcb; j33 += q.jcc;
+
+        F[B1] = f0; F[C1] = f1; F[B2] = f2; F[C2] = f3;
+        absSum[B1] = a0; absSum[C1] = a1; absSum[B2] = a2; absSum[C2] = a3;
+        J[B1][B1] = j00; J[B1][C1] = j01; J[B1][B2] = 0.0; J[B1][C2] = j03;
+        J[C1][B1] = j10; J[C1][C1] = j11; J[C1][B2] = j12; J[C1][C2] = 0.0;
+        J[B2][B1] = 0.0; J[B2][C1] = j21; J[B2][B2] = j22; J[B2][C2] = j23;
+        J[C2][B1] = j30; J[C2][C1] = 0.0; J[C2][B2] = j32; J[C2][C2] = j33;
     }
 
-    // Courant du condensateur k au point v pour le pas h. Euler arriere :
-    // C/h * (dv - dv_prec). Trapeze (tr_) : 2C/h * (dv - dv_prec) - i_prec, ou
-    // i_prec est le courant COMMIS au pas precedent (iCap_).
-    double capCurrent(int k, const double* v, int a, int b) const
+    // Courant du condensateur k pour la tension dv a ses bornes. dvPrev_ est sa
+    // tension au pas precedent, posee une fois par tentative, comme gCap_.
+    double capI(int k, double dv) const
     {
-        const double dv  = (b >= 0) ? (v[a] - v[b]) : v[a];
-        const double dvp = (b >= 0) ? (vPrev_[a] - vPrev_[b]) : vPrev_[a];
-        return tr_ ? gCap_[k] * (dv - dvp) - iCap_[k]
-                   : gCap_[k] * (dv - dvp);
+        return tr_ ? gCap_[k] * (dv - dvPrev_[k]) - iCap_[k]
+                   : gCap_[k] * (dv - dvPrev_[k]);
     }
+
     // Memorise les courants des condensateurs au point commis v_ (pour le trapeze).
     void commitCapCurrents()
     {
         double ic[6];
-        ic[0] = capCurrent(0, v_, C1, B2);
-        ic[1] = capCurrent(1, v_, C2, B1);
-        ic[2] = capCurrent(2, v_, B1, -1);
-        ic[3] = capCurrent(3, v_, B2, -1);
-        ic[4] = capCurrent(4, v_, B1, C1);
-        ic[5] = capCurrent(5, v_, B2, C2);
+        ic[0] = capI(0, v_[C1] - v_[B2]);
+        ic[1] = capI(1, v_[C2] - v_[B1]);
+        ic[2] = capI(2, v_[B1]);
+        ic[3] = capI(3, v_[B2]);
+        ic[4] = capI(4, v_[B1] - v_[C1]);
+        ic[5] = capI(5, v_[B2] - v_[C2]);
         for (int k = 0; k < 6; ++k) iCap_[k] = ic[k];
     }
     double iCap_[6] = {0, 0, 0, 0, 0, 0};
     double gCap_[6] = {0, 0, 0, 0, 0, 0};   // C/h, ou 2C/h au trapeze, pour le pas en cours
     double gR1_ = 0.0, gR2_ = 0.0;          // conductances des deux echelles
+    double dvPrev_[6] = {0, 0, 0, 0, 0, 0}; // tension de chaque condensateur au pas precedent
     bool   tr_ = false;              // trapeze pour ce pas (regime lent raffine)
 
-    // NPN, emetteur a la masse : vbe = v[b], vbc = v[b] - v[c].
-    static void bjt(const double* v, int b, int c,
-                    double* F, double J[N][N], double* absSum)
+    // NPN, emetteur a la masse. Ce que le transistor ajoute a ses deux noeuds.
+    struct Bjt { double Ib, Ic, absB, absC, jbb, jbc, jcb, jcc; };
+    static void bjt(double vbe, double vbc, Bjt& q)
     {
         double ebe, dbe, ebc, dbc;
-        jexp(v[b], ebe, dbe);
-        jexp(v[b] - v[c], ebc, dbc);
+        jexp(vbe, ebe, dbe);
+        jexp(vbc, ebc, dbc);
         const double gbe = kIs / kBf * dbe / kVt, gbc = kIs / kBr * dbc / kVt;
         const double gif = kIs * dbe / kVt,       gir = kIs * dbc / kVt;
         const double ibe = kIs / kBf * (ebe - 1.0), ibc = kIs / kBr * (ebc - 1.0);
@@ -745,15 +761,14 @@ private:
         // vbe < -kBVebo (l'emetteur est a la masse). Meme exponentielle
         // prolongee que les jonctions, pour que Newton ne saute pas.
         double ebv, dbv;
-        jexp(-v[b] - kBVebo, ebv, dbv);
+        jexp(-vbe - kBVebo, ebv, dbv);
         const double ibv = kIsBv * (ebv - 1.0), gbv = kIsBv * dbv / kVt;
         const double it  = kIs * (ebe - ebc);
-        const double Ib = ibe + ibc - ibv, Ic = it - ibc;
-        F[b] += Ib; F[c] += Ic;
-        absSum[b] += std::fabs(Ib) + std::fabs(ibv); absSum[c] += std::fabs(Ic);
+        q.Ib = ibe + ibc - ibv; q.Ic = it - ibc;
+        q.absB = std::fabs(q.Ib) + std::fabs(ibv); q.absC = std::fabs(q.Ic);
         // d/dv[b] = d/dvbe + d/dvbc ; d/dv[c] = -d/dvbc ; d(-ibv)/dv[b] = +gbv
-        J[b][b] += gbe + gbc + gbv; J[b][c] -= gbc;
-        J[c][b] += gif - gir - gbc; J[c][c] += gir + gbc;
+        q.jbb = gbe + gbc + gbv; q.jbc = gbc;
+        q.jcb = gif - gir - gbc; q.jcc = gir + gbc;
     }
 
     // Sur place : A et b sont detruits, l'appelant ne s'en resert pas. Les lignes
@@ -802,6 +817,9 @@ private:
         gCap_[2] = m * kCje / h; gCap_[3] = gCap_[2];
         gCap_[4] = m * kCjc / h; gCap_[5] = gCap_[4];
         gR1_ = 1.0 / r1; gR2_ = 1.0 / r2;
+        dvPrev_[0] = vPrev_[C1] - vPrev_[B2]; dvPrev_[1] = vPrev_[C2] - vPrev_[B1];
+        dvPrev_[2] = vPrev_[B1];              dvPrev_[3] = vPrev_[B2];
+        dvPrev_[4] = vPrev_[B1] - vPrev_[C1]; dvPrev_[5] = vPrev_[B2] - vPrev_[C2];
         // Tampons echanges, pas recopies : la recherche lineaire accepte un point
         // en reprenant son residu, et ce sont 24 doubles a chaque fois.
         double F0[N], J0[N][N], A0[N], F1[N], J1[N][N], A1[N];
