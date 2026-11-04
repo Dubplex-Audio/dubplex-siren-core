@@ -856,12 +856,16 @@ private:
             // que le circuit EST resolu ; le pas de Newton, lui, y est
             // negligeable. Omettre ce second filet bloquait le solveur pour de
             // bon, quelle que soit la finesse du pas de temps.
-            bool okI = true, okV = true;
-            for (int i = 0; i < N; ++i)
-            {
-                if (std::fabs(F[i]) > kReltolI * A[i] + kAbstol) okI = false;
-                if (std::fabs(dv[i]) > kReltolV * std::fabs(v[i]) + kVntol) okV = false;
-            }
+            const bool okV =
+                   std::fabs(dv[0]) <= kReltolV * std::fabs(v[0]) + kVntol
+                && std::fabs(dv[1]) <= kReltolV * std::fabs(v[1]) + kVntol
+                && std::fabs(dv[2]) <= kReltolV * std::fabs(v[2]) + kVntol
+                && std::fabs(dv[3]) <= kReltolV * std::fabs(v[3]) + kVntol;
+            const bool okI = !okV
+                && std::fabs(F[0]) <= kReltolI * A[0] + kAbstol
+                && std::fabs(F[1]) <= kReltolI * A[1] + kAbstol
+                && std::fabs(F[2]) <= kReltolI * A[2] + kAbstol
+                && std::fabs(F[3]) <= kReltolI * A[3] + kAbstol;
             // On ne commet QUE ce qu'on a verifie. Si c'est le critere en
             // courant qui est satisfait, le residu a ete verifie AU POINT v :
             // c'est donc v qu'il faut garder, pas v+dv — dv peut etre enorme si
@@ -877,23 +881,21 @@ private:
             // Amortissement par la physique : le prolongement lineaire empeche
             // l'exponentielle de deborder mais rend sa pente constante loin du
             // point de fonctionnement, donc le pas de Newton y est enorme.
-            double worst = 0.0;
-            worst = std::max(worst, std::fabs(dv[B1]));
-            worst = std::max(worst, std::fabs(dv[B1] - dv[C1]));
-            worst = std::max(worst, std::fabs(dv[B2]));
-            worst = std::max(worst, std::fabs(dv[B2] - dv[C2]));
+            const double worst = std::max(std::max(std::fabs(dv[B1]), std::fabs(dv[B1] - dv[C1])),
+                                          std::max(std::fabs(dv[B2]), std::fabs(dv[B2] - dv[C2])));
             double lam = (worst <= kDvMax) ? 1.0 : kDvMax / worst;
 
             // Recherche lineaire : on n'accepte le pas que s'il fait baisser
             // ||F||. Sans ce garde-fou Newton entre en cycle limite pile au
             // basculement, ou la boucle de reaction est regenerative.
-            double f0 = 0.0; for (int i = 0; i < N; ++i) f0 += F[i] * F[i];
+            const double f0 = F[0] * F[0] + F[1] * F[1] + F[2] * F[2] + F[3] * F[3];
             bool moved = false;
             for (int b = 0; b < kLineSearchMax; ++b)
             {
-                for (int i = 0; i < N; ++i) w[i] = v[i] + lam * dv[i];
+                w[0] = v[0] + lam * dv[0]; w[1] = v[1] + lam * dv[1];
+                w[2] = v[2] + lam * dv[2]; w[3] = v[3] + lam * dv[3];
                 assemble(w, vm1, vm2, v86, d86, vcc, nF, nJ, nA);
-                double f1 = 0.0; for (int i = 0; i < N; ++i) f1 += nF[i] * nF[i];
+                const double f1 = nF[0] * nF[0] + nF[1] * nF[1] + nF[2] * nF[2] + nF[3] * nF[3];
                 if (f1 < f0)
                 {   // on reprend le residu deja calcule ici : l'iteration
                     // suivante en a besoin au meme point
