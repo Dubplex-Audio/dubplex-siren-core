@@ -99,6 +99,10 @@ public:
         // (MachineFactor), qui ne fait que RESSERRER le budget quand la machine
         // est chargee. C'est ce que demande le plugin ; au repos, c'est 1.
         bool  adaptiveBudget = false;
+        // true (defaut) : une fois la carte eteinte ET entierement dechargee, le
+        // solveur s'arrete, voir enterSleepIfSettled(). false ne sert qu'aux tests
+        // qui verifient que cela ne change rien.
+        bool  sleepWhenSettled = true;
         int   oversample   = 4;   // 4x par defaut : les fronts du circuit sont
                                  // plus rapides que 48 kHz ne peut tenir, et
                                  // mesure faite le cout n'est que x1,8 — le
@@ -117,6 +121,7 @@ public:
         machine_.reset(); asmCost_ = kAsmCost;
 
         led_ = 0.0f;   // suit le rail, voir plus bas
+        asleep_ = false;
         prevPower_ = false;
         hp1x_ = hp1y_ = 0.0f; lfoSeeded_ = false; lfoLag_ = 0.0; audioLag_ = 0.0; lfoLagBlocks_ = 0;
         core_.reset(); vccS_ = 0.0f;
@@ -151,6 +156,15 @@ public:
         // faux bloc « en retard » et « pire inf % » au journal.
         if (fs_ <= 0.0f || numFrames <= 0)
             return;
+
+        // CARTE ETEINTE ET DECHARGEE : voir enterSleepIfSettled(). La sortie vaut
+        // exactement zero et rien ne peut en sortir sans le rail. Le rail revenu,
+        // tout repart du zero que le solveur aurait lui-meme calcule.
+        if (asleep_)
+        {
+            if (!p_.power && !p_.trigBtn) { volS_ = p_.volume; return; }
+            asleep_ = false;
+        }
 
         const int OS = effectiveOS();
         const float dtEff = dt_ / (float) OS;
@@ -461,7 +475,44 @@ public:
         }
         if (workLeft_ <= 0) ++blocksClipped_;
         ++blocksSeen_;
+        if (!effPower && p_.sleepWhenSettled) enterSleepIfSettled();
     }
+
+private:
+    // LA DECHARGE EST RESOLUE JUSQU'AU BOUT, c'est tout l'interet du modele : C4 se
+    // vide par ses vrais chemins, C3 par la charge, et une remise sous tension en
+    // cours de route repart de ce qui reste. Le solveur ne s'arrete donc que quand
+    // il n'y a plus rien a entendre ni a garder : tous les noeuds sous 1 uV et la
+    // sortie sous -180 dBFS, soit une vingtaine de secondes apres la coupure. Avant
+    // ce point, la sortie est identique au bit pres (test_sleep).
+    //
+    // Pourquoi 1 uV et pas moins : mesure sur 1000 s, le solveur ne descend jamais
+    // sous ce plancher. Une base et un noeud du LFO restent a 2,2e-7 V, parce que
+    // c'est la que Newton s'estime converge ; la sortie y bruite a -210 dBFS. Au-dela
+    // de ce point, il tournait 176 000 fois par seconde pour ne plus rien produire :
+    // 100 us par bloc de 16 images sur l'A53, en permanence.
+    //
+    // Rien n'est remis a zero : l'etat reste ou il est, a l'arret. Une carte jamais
+    // alimentee est donc identique au bit pres, reprise comprise.
+    void enterSleepIfSettled()
+    {
+        constexpr double kEpsNode = 1e-6;
+        constexpr float  kEpsOut  = 1e-9f;
+        if (std::fabs(vccS_) > (float) kEpsNode || std::fabs(sqNow_) > (float) kEpsNode
+            || std::fabs(swNow_) > (float) kEpsNode)
+            return;
+        if (std::fabs(hp1x_) > kEpsOut || std::fabs(hp1y_) > kEpsOut) return;
+        if (lfoLag_ != 0.0 || audioLag_ != 0.0) return;
+        if (!core_.settled(kEpsNode) || !lfo_.settled(kEpsNode)) return;
+        for (int n = 0; n < decimN_; ++n)
+            if (std::fabs(decimRing_[n]) > kEpsOut) return;
+        led_ = 0.0f;
+        asleep_ = true;
+    }
+    bool asleep_ = false;
+
+public:
+    bool asleep() const { return asleep_; }   // le solveur est-il a l'arret ?
 
 public:
     // Compteurs de charge, pour voir ce que fait le solveur sans avoir a le

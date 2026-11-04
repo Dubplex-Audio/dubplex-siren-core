@@ -422,6 +422,11 @@ private:
 public:
 
     void  setSlowRefine(bool on) { slowRefine_ = on; }
+    // Tous les noeuds a moins de eps de la masse : plus rien a resoudre.
+    bool settled(double eps) const {
+        for (int i = 0; i < N; ++i) if (std::fabs(v_[i]) > eps) return false;
+        return true; }
+
     float out()  const { return (float) v_[C2]; }   // collecteur T2, avant R12 (etat)
     float outAvg() const { return outAvg_; }       // idem, moyenne sur le dernier pas (anti-repliement)
     // Temps parcouru par le dernier step() : dt si le budget a suffi, moins

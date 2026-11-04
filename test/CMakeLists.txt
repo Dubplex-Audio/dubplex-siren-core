@@ -13,6 +13,9 @@ siren_core_test(siren_engine test_siren_engine)
 # commande.
 siren_core_test(budget test_budget)
 
+# L'arret du solveur carte dechargee : ne change rien, decharge comprise.
+siren_core_test(sleep test_sleep)
+
 # L'astable resolu comme un circuit.
 siren_core_test(astable_core test_astable)
 

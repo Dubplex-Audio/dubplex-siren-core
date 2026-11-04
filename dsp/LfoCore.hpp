@@ -201,6 +201,10 @@ public:
     void dbgNodes(double* out) const {
         out[0]=m_.v(n1_); out[1]=m_.v(n90_); out[2]=m_.v(n2_); out[3]=m_.v(n14_);
         out[4]=m_.v(n91_); out[5]=m_.v(n7_); out[6]=m_.v(n24_); out[7]=m_.v(n34_); }
+    // Tous les noeuds a moins de eps de la masse : le LFO n'a plus rien a resoudre.
+    bool settled(double eps) const {
+        for (int i = 0; i < m_.numNodes(); ++i) if (std::fabs(m_.v(i)) > eps) return false;
+        return true; }
     void  setNet86Load(double amps) { m_.setI(iLoad63_, amps); }   // > 0 = sort du net 63
     int   work() const { return m_.work(); }                 // assemblees cumulees
     // Pas borne : voir Mna::run(dt, budget, advanced). Renvoie le temps parcouru.
