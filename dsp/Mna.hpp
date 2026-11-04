@@ -116,6 +116,7 @@ private:
     static constexpr double kVt     = 0.025852;
     static constexpr double kGmin   = 1e-9;
     static constexpr double kVmaxJ  = 1.0;
+    static constexpr double kVjOff = -80.0 * kVt; // en-deca, exp(v/Vt) ne compte plus
     static constexpr double kDvMax  = 0.5;
     static constexpr double kReltolI = 1e-3;
     static constexpr double kAbstol  = 1e-12;
@@ -144,7 +145,9 @@ private:
 
     static void jexp(double vd, double& val, double& slope)
     {
-        if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
+        // Jonction bloquee : voir AstableCore::jexp, meme coupure, meme raison.
+        if (vd < kVjOff)  { val = 0.0; slope = 0.0; }
+        else if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
         else              { val = kEmax * (1.0 + (vd - kVmaxJ) / kVt); slope = kEmax; }
     }
 

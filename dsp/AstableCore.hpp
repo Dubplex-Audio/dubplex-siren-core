@@ -445,6 +445,7 @@ private:
     static constexpr double kVt    = 0.025852;
     static constexpr double kGmin  = 1e-9;    // fuite : 1 GOhm par noeud
     static constexpr double kVmaxJ = 1.0;     // au-dela, exponentielle prolongee
+    static constexpr double kVjOff = -80.0 * kVt; // en-deca, exp(v/Vt) ne compte plus
     static constexpr double kDvMax = 0.5;     // deplacement max d'une jonction
     // exp(kVmaxJ / kVt), calculee au chargement et non en statique locale de
     // jexp() : voir Mna.hpp, meme raison (garde d'initialisation sur le fil
@@ -561,7 +562,13 @@ private:
     // encore une pente : Newton n'aurait plus de direction de descente.
     static void jexp(double vd, double& val, double& slope)
     {
-        if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
+        // Jonction bloquee : sous -80 Vt (-2 V), exp vaut moins de 2e-35. Ajoutee a -1
+        // (ebe - 1) elle disparait dans l'arrondi, et sa pente disparait devant
+        // kGmin. Calculer ces exponentielles coutait 15 % du solveur sur l'A53,
+        // pour un resultat identique au bit pres : bloquees, elles le sont la
+        // plupart du temps (sur 6 par assemblee, le claquage ne s'amorce jamais).
+        if (vd < kVjOff)  { val = 0.0; slope = 0.0; }
+        else if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
         else              { val = kEmax * (1.0 + (vd - kVmaxJ) / kVt); slope = kEmax; }
     }
 
