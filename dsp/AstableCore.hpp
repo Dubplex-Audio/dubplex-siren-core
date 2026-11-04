@@ -379,7 +379,7 @@ private:
                     continue;
                 }
                 sinceEdge_ = (dvMax > kEdgeDv) ? 0.0 : sinceEdge_ + h;   // age du dernier front
-                commitCapCurrents(h);
+                commitCapCurrents();
                 for (int i = 0; i < N; ++i) vStepPrev_[i] = vBefore[i];
                 hPrev_ = h;
                 outAcc_ += 0.5 * (vBefore[C2] + v_[C2]) * h; tAcc_ += h;   // integrale du collecteur
@@ -634,7 +634,7 @@ private:
     // Residu (courants sortants) et jacobienne. absSum accumule la somme des
     // |courants| par noeud : un residu ne se juge que relativement au courant
     // que le noeud brasse reellement.
-    void assemble(const double* v, double h, double r1, double vm1, double r2,
+    void assemble(const double* v, double vm1,
                   double vm2, double v86, bool d86, double vcc,
                   double* F, double J[N][N], double* absSum) const
     {
@@ -649,8 +649,8 @@ private:
             const double i0 = g * (v[a] - src);
             F[a] += i0; absSum[a] += std::fabs(i0); J[a][a] += g;
         };
-        res(B1, 1.0 / r1, vm1);            // echelle -> base 1
-        res(B2, 1.0 / r2, vm2);            // echelle -> base 2
+        res(B1, gR1_, vm1);                // echelle -> base 1
+        res(B2, gR2_, vm2);                // echelle -> base 2
         res(C1, 1.0 / kRc, vcc);           // R9  -> collecteur 1
         res(C2, 1.0 / kRc, vcc);           // R13 -> collecteur 2
         if (d86)
@@ -676,20 +676,20 @@ private:
         // regeneratif il sonne numeriquement, et Newton le paie. Il n'est donc
         // employe que la ou Euler arriere se trompe : l'approche lente du
         // seuil, dont il amortissait le mode regeneratif marginal.
-        auto cap = [&](int k, int a, int b, double C) {
-            const double ic = capCurrent(k, v, h, a, b, C);
-            const double g  = (tr_ ? 2.0 : 1.0) * C / h;
+        auto cap = [&](int k, int a, int b) {
+            const double ic = capCurrent(k, v, a, b);
+            const double g  = gCap_[k];
             F[a] += ic; if (b >= 0) F[b] -= ic;
             absSum[a] += std::fabs(ic); if (b >= 0) absSum[b] += std::fabs(ic);
             J[a][a] += g;
             if (b >= 0) { J[a][b] -= g; J[b][b] += g; J[b][a] -= g; }
         };
-        cap(0, C1, B2, kC);        // couplage croise
-        cap(1, C2, B1, kCb);
-        cap(2, B1, -1, kCje);      // vers la masse
-        cap(3, B2, -1, kCje);
-        cap(4, B1, C1, kCjc);
-        cap(5, B2, C2, kCjc);
+        cap(0, C1, B2);            // couplage croise
+        cap(1, C2, B1);
+        cap(2, B1, -1);            // vers la masse
+        cap(3, B2, -1);
+        cap(4, B1, C1);
+        cap(5, B2, C2);
 
         bjt(v, B1, C1, F, J, absSum);
         bjt(v, B2, C2, F, J, absSum);
@@ -701,26 +701,28 @@ private:
     // Courant du condensateur k au point v pour le pas h. Euler arriere :
     // C/h * (dv - dv_prec). Trapeze (tr_) : 2C/h * (dv - dv_prec) - i_prec, ou
     // i_prec est le courant COMMIS au pas precedent (iCap_).
-    double capCurrent(int k, const double* v, double h, int a, int b, double C) const
+    double capCurrent(int k, const double* v, int a, int b) const
     {
         const double dv  = (b >= 0) ? (v[a] - v[b]) : v[a];
         const double dvp = (b >= 0) ? (vPrev_[a] - vPrev_[b]) : vPrev_[a];
-        return tr_ ? (2.0 * C / h) * (dv - dvp) - iCap_[k]
-                   : (C / h) * (dv - dvp);
+        return tr_ ? gCap_[k] * (dv - dvp) - iCap_[k]
+                   : gCap_[k] * (dv - dvp);
     }
     // Memorise les courants des condensateurs au point commis v_ (pour le trapeze).
-    void commitCapCurrents(double h)
+    void commitCapCurrents()
     {
         double ic[6];
-        ic[0] = capCurrent(0, v_, h, C1, B2, kC);
-        ic[1] = capCurrent(1, v_, h, C2, B1, kCb);
-        ic[2] = capCurrent(2, v_, h, B1, -1, kCje);
-        ic[3] = capCurrent(3, v_, h, B2, -1, kCje);
-        ic[4] = capCurrent(4, v_, h, B1, C1, kCjc);
-        ic[5] = capCurrent(5, v_, h, B2, C2, kCjc);
+        ic[0] = capCurrent(0, v_, C1, B2);
+        ic[1] = capCurrent(1, v_, C2, B1);
+        ic[2] = capCurrent(2, v_, B1, -1);
+        ic[3] = capCurrent(3, v_, B2, -1);
+        ic[4] = capCurrent(4, v_, B1, C1);
+        ic[5] = capCurrent(5, v_, B2, C2);
         for (int k = 0; k < 6; ++k) iCap_[k] = ic[k];
     }
     double iCap_[6] = {0, 0, 0, 0, 0, 0};
+    double gCap_[6] = {0, 0, 0, 0, 0, 0};   // C/h, ou 2C/h au trapeze, pour le pas en cours
+    double gR1_ = 0.0, gR2_ = 0.0;          // conductances des deux echelles
     bool   tr_ = false;              // trapeze pour ce pas (regime lent raffine)
 
     // NPN, emetteur a la masse : vbe = v[b], vbc = v[b] - v[c].
@@ -754,27 +756,33 @@ private:
         J[c][b] += gif - gir - gbc; J[c][c] += gir + gbc;
     }
 
-    static bool solve4(double A[N][N], const double* rhs, double* x)
+    // Sur place : A et b sont detruits, l'appelant ne s'en resert pas. Les lignes
+    // s'echangent par pointeur, et une ligne dont le coefficient est deja nul n'a
+    // rien a eliminer. Le circuit en a toujours : B1-B2 et C1-C2 ne se couplent pas.
+    static bool solve4(double A[N][N], double* b, double* x)
     {
-        double M[N][N + 1];
-        for (int i = 0; i < N; ++i)
-        { for (int j = 0; j < N; ++j) M[i][j] = A[i][j]; M[i][N] = rhs[i]; }
+        double* M[N] = { A[0], A[1], A[2], A[3] };
+        double* B[N] = { &b[0], &b[1], &b[2], &b[3] };
         for (int k = 0; k < N; ++k)
         {
             int p = k;
             for (int i = k + 1; i < N; ++i)
                 if (std::fabs(M[i][k]) > std::fabs(M[p][k])) p = i;
             if (std::fabs(M[p][k]) < 1e-300) return false;
-            if (p != k) for (int j = k; j <= N; ++j) std::swap(M[k][j], M[p][j]);
+            if (p != k) { std::swap(M[k], M[p]); std::swap(B[k], B[p]); }
+            const double* Mk = M[k];
             for (int i = k + 1; i < N; ++i)
             {
-                const double f = M[i][k] / M[k][k];
-                for (int j = k; j <= N; ++j) M[i][j] -= f * M[k][j];
+                double* Mi = M[i];
+                if (Mi[k] == 0.0) continue;
+                const double f = Mi[k] / Mk[k];
+                for (int j = k + 1; j < N; ++j) Mi[j] -= f * Mk[j];
+                *B[i] -= f * *B[k];
             }
         }
         for (int i = N - 1; i >= 0; --i)
         {
-            double s = M[i][N];
+            double s = *B[i];
             for (int j = i + 1; j < N; ++j) s -= M[i][j] * x[j];
             x[i] = s / M[i][i];
         }
@@ -786,7 +794,20 @@ private:
                 double v86, bool d86, double vcc, const double* start)
     {
         double v[N]; for (int i = 0; i < N; ++i) v[i] = start[i];
-        double F[N], J[N][N], A[N], dv[N], nF[N], nJ[N][N], nA[N];
+        // Les conductances qui ne dependent que du pas et des echelles se posent
+        // une fois par tentative. Elles coutaient 14 divisions par assemblee, et
+        // la division double est ce que l'A53 fait de plus lent.
+        const double m = tr_ ? 2.0 : 1.0;
+        gCap_[0] = m * kC / h;   gCap_[1] = m * kCb / h;
+        gCap_[2] = m * kCje / h; gCap_[3] = gCap_[2];
+        gCap_[4] = m * kCjc / h; gCap_[5] = gCap_[4];
+        gR1_ = 1.0 / r1; gR2_ = 1.0 / r2;
+        // Tampons echanges, pas recopies : la recherche lineaire accepte un point
+        // en reprenant son residu, et ce sont 24 doubles a chaque fois.
+        double F0[N], J0[N][N], A0[N], F1[N], J1[N][N], A1[N];
+        double* F = F0; double* A = A0; double (*J)[N] = J0;
+        double* nF = F1; double* nA = A1; double (*nJ)[N] = J1;
+        double dv[N];
         double w[N];
         // Quand la recherche lineaire accepte un point, elle vient d'y evaluer
         // le residu : c'est exactement ce dont l'iteration suivante a besoin au
@@ -795,7 +816,7 @@ private:
         for (int it = 0; it < kNewtonMax; ++it)
         {
             if (!haveF)
-                assemble(v, h, r1, vm1, r2, vm2, v86, d86, vcc, F, J, A);
+                assemble(v, vm1, vm2, v86, d86, vcc, F, J, A);
             haveF = false;
             double neg[N]; for (int i = 0; i < N; ++i) neg[i] = -F[i];
             if (!solve4(J, neg, dv)) return false;
@@ -843,16 +864,13 @@ private:
             for (int b = 0; b < kLineSearchMax; ++b)
             {
                 for (int i = 0; i < N; ++i) w[i] = v[i] + lam * dv[i];
-                assemble(w, h, r1, vm1, r2, vm2, v86, d86, vcc, nF, nJ, nA);
+                assemble(w, vm1, vm2, v86, d86, vcc, nF, nJ, nA);
                 double f1 = 0.0; for (int i = 0; i < N; ++i) f1 += nF[i] * nF[i];
                 if (f1 < f0)
                 {   // on reprend le residu deja calcule ici : l'iteration
                     // suivante en a besoin au meme point
-                    for (int i = 0; i < N; ++i)
-                    {
-                        v[i] = w[i]; F[i] = nF[i]; A[i] = nA[i];
-                        for (int j = 0; j < N; ++j) J[i][j] = nJ[i][j];
-                    }
+                    for (int i = 0; i < N; ++i) v[i] = w[i];
+                    std::swap(F, nF); std::swap(A, nA); std::swap(J, nJ);
                     moved = true; haveF = true; break;
                 }
                 lam *= 0.5;
