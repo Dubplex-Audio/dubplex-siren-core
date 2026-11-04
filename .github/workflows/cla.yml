@@ -32,3 +32,8 @@ jobs:
           # Les signatures vivent sur une branche a part, non protegee.
           branch: cla-signatures
           allowlist: bot*,dependabot[bot]
+          # Le message par defaut parle de projet open source : ce depot ne l'est pas.
+          custom-notsigned-prcomment: >-
+            Thank you for your contribution. This repository is source-available, and we
+            ask you to sign its [Contributor License Agreement](https://github.com/Dubplex-Audio/dubplex-siren-core/blob/main/CLA.md)
+            before it can be merged. To sign, post the sentence below as a comment on this pull request.
