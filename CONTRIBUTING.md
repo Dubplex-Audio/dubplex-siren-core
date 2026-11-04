@@ -5,7 +5,8 @@
 before contributing: they are short.
 
 1. **Sign the CLA** (`CLA.md`). Your first pull request gets a comment that tells
-   you the sentence to post.
+   you the sentence to post. The e-mail address of your commits must be linked to
+   your GitHub account, otherwise the signature cannot be matched to them.
 2. **Keep the rule of the repository:** the headers see only the C++ standard
    library. No framework, no dependency.
 3. **A change to the sound needs a reason measured on the circuit.** The tests
