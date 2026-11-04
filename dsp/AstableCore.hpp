@@ -771,36 +771,41 @@ private:
         q.jcb = gif - gir - gbc; q.jcc = gir + gbc;
     }
 
-    // Sur place : A et b sont detruits, l'appelant ne s'en resert pas. Les lignes
-    // s'echangent par pointeur, et une ligne dont le coefficient est deja nul n'a
-    // rien a eliminer. Le circuit en a toujours : B1-B2 et C1-C2 ne se couplent pas.
-    static bool solve4(double A[N][N], double* b, double* x)
+    // Pivot de Gauss sur la matrice 4x4 du circuit. Ecrit en acces constants pour
+    // que tout tienne dans des registres : les lignes s'echangent dans des
+    // registres au lieu de passer par la memoire, ce que le coeur de l'A53 ne
+    // masque pas. Une ligne dont le coefficient est deja nul n'a rien a eliminer,
+    // et le circuit en a toujours : B1-B2 et C1-C2 ne se couplent pas.
+    static inline __attribute__((always_inline)) void pivot(double m[N][N + 1], int k)
     {
-        double* M[N] = { A[0], A[1], A[2], A[3] };
-        double* B[N] = { &b[0], &b[1], &b[2], &b[3] };
-        for (int k = 0; k < N; ++k)
-        {
-            int p = k;
-            for (int i = k + 1; i < N; ++i)
-                if (std::fabs(M[i][k]) > std::fabs(M[p][k])) p = i;
-            if (std::fabs(M[p][k]) < 1e-300) return false;
-            if (p != k) { std::swap(M[k], M[p]); std::swap(B[k], B[p]); }
-            const double* Mk = M[k];
-            for (int i = k + 1; i < N; ++i)
+        for (int i = k + 1; i < N; ++i)
+            if (std::fabs(m[i][k]) > std::fabs(m[k][k]))
+                for (int j = k; j <= N; ++j) std::swap(m[k][j], m[i][j]);
+    }
+    static inline __attribute__((always_inline)) void eliminate(double m[N][N + 1], int k)
+    {
+        for (int i = k + 1; i < N; ++i)
+            if (m[i][k] != 0.0)
             {
-                double* Mi = M[i];
-                if (Mi[k] == 0.0) continue;
-                const double f = Mi[k] / Mk[k];
-                for (int j = k + 1; j < N; ++j) Mi[j] -= f * Mk[j];
-                *B[i] -= f * *B[k];
+                const double f = m[i][k] / m[k][k];
+                for (int j = k + 1; j <= N; ++j) m[i][j] -= f * m[k][j];
             }
-        }
-        for (int i = N - 1; i >= 0; --i)
-        {
-            double s = *B[i];
-            for (int j = i + 1; j < N; ++j) s -= M[i][j] * x[j];
-            x[i] = s / M[i][i];
-        }
+    }
+    static bool solve4(const double A[N][N], const double* b, double* x)
+    {
+        double m[N][N + 1] = {
+            { A[0][0], A[0][1], A[0][2], A[0][3], b[0] },
+            { A[1][0], A[1][1], A[1][2], A[1][3], b[1] },
+            { A[2][0], A[2][1], A[2][2], A[2][3], b[2] },
+            { A[3][0], A[3][1], A[3][2], A[3][3], b[3] } };
+        pivot(m, 0); if (std::fabs(m[0][0]) < 1e-300) return false; eliminate(m, 0);
+        pivot(m, 1); if (std::fabs(m[1][1]) < 1e-300) return false; eliminate(m, 1);
+        pivot(m, 2); if (std::fabs(m[2][2]) < 1e-300) return false; eliminate(m, 2);
+        if (std::fabs(m[3][3]) < 1e-300) return false;
+        x[3] = m[3][4] / m[3][3];
+        x[2] = (m[2][4] - m[2][3] * x[3]) / m[2][2];
+        x[1] = (m[1][4] - m[1][2] * x[2] - m[1][3] * x[3]) / m[1][1];
+        x[0] = (m[0][4] - m[0][1] * x[1] - m[0][2] * x[2] - m[0][3] * x[3]) / m[0][0];
         for (int i = 0; i < N; ++i) if (!std::isfinite(x[i])) return false;
         return true;
     }
