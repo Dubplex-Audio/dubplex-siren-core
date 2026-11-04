@@ -4,7 +4,8 @@
 1.0.0, with the additional permission in `LICENSE-ADDITIONAL.md`. Read them once
 before contributing: they are short.
 
-1. **Sign the CLA** (`CLA.md`). Your first pull request gets a comment with a link.
+1. **Sign the CLA** (`CLA.md`). Your first pull request gets a comment that tells
+   you the sentence to post.
 2. **Keep the rule of the repository:** the headers see only the C++ standard
    library. No framework, no dependency.
 3. **A change to the sound needs a reason measured on the circuit.** The tests

@@ -71,10 +71,11 @@ Maintainer is under no obligation to include any Contribution in the Project.
 
 ## 6. How to agree
 
-Signing is done through the CLA assistant on GitHub: the first pull request
-you open on the repository receives a comment with a link; follow it and sign
-once. The signature covers all your later Contributions. Entities sign the
-same text through the same link, naming the authorised person.
+Signing is done on GitHub: the first pull request you open on the repository
+receives a comment asking you to post the sentence "I have read the CLA Document
+and I hereby sign the CLA". Post it once. It is recorded with your GitHub account
+and covers all your later Contributions. If You sign for an entity, say so in the
+same comment and name the authorised person.
 
 If you cannot or do not want to sign, the Maintainer cannot merge your
 Contribution, but you remain free to publish it yourself under the Project's
