@@ -37,6 +37,12 @@
 #include <cmath>
 #include <algorithm>
 
+#if defined(_MSC_VER)
+#define SIREN_FORCE_INLINE __forceinline
+#else
+#define SIREN_FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
 namespace siren {
 
 class AstableCore {
@@ -781,13 +787,13 @@ private:
     // registres au lieu de passer par la memoire, ce que le coeur de l'A53 ne
     // masque pas. Une ligne dont le coefficient est deja nul n'a rien a eliminer,
     // et le circuit en a toujours : B1-B2 et C1-C2 ne se couplent pas.
-    static inline __attribute__((always_inline)) void pivot(double m[N][N + 1], int k)
+    SIREN_FORCE_INLINE static void pivot(double m[N][N + 1], int k)
     {
         for (int i = k + 1; i < N; ++i)
             if (std::fabs(m[i][k]) > std::fabs(m[k][k]))
                 for (int j = k; j <= N; ++j) std::swap(m[k][j], m[i][j]);
     }
-    static inline __attribute__((always_inline)) void eliminate(double m[N][N + 1], int k)
+    SIREN_FORCE_INLINE static void eliminate(double m[N][N + 1], int k)
     {
         for (int i = k + 1; i < N; ++i)
             if (m[i][k] != 0.0)
