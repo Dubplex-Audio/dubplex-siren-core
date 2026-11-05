@@ -290,8 +290,16 @@ public:
             // tranche proportionnelle, un bloc de rattrapage peut monter a deux
             // tranches (80 % du budget, le retard etant borne a un bloc), une
             // fois, puis tout rentre dans l'ordre.
-            const int lfoSlice = std::max(4, (int) (kLfoShare * workLeft_ * (want / dtBlock)
-                                                    / kLfoAsmCostRatio));
+            int lfoSlice = std::max(4, (int) (kLfoShare * workLeft_ * (want / dtBlock)
+                                              / kLfoAsmCostRatio));
+            // REPARTITION DU BASCULEMENT (voir SIREN_LFO_WORK_PER_FRAME). Le reste
+            // du temps le LFO ne demande que 4 assemblees par bloc de 16 images :
+            // il y a toute la place pour rattraper le retard ensuite.
+            if (kLfoWorkPerFrame > 0)
+            {
+                lfo_.keepStepAcrossCuts(true);
+                lfoSlice = std::min(lfoSlice, std::max(4, kLfoWorkPerFrame * numFrames));
+            }
             lfo_.resetWork();
             const double got  = lfo_.stepBudgeted(want, lfoSlice);
             // Report borne a un bloc. Seuil a 1 ns : run() conclut a
@@ -300,7 +308,10 @@ public:
             // CHAQUE bloc pour un bloc coupe (376 d'affilee au journal, alors
             // que le LFO livrait tout son temps a 1e-15 s pres).
             const double deficit = want - got;
-            lfoLag_ = (deficit > 1e-9) ? std::min(dtBlock, deficit) : 0.0;
+            // Plafonne, le retard se compte en blocs tant que le basculement dure :
+            // le borner a un bloc jetterait ce temps et ralentirait le LFO.
+            const double maxLag = (kLfoWorkPerFrame > 0) ? kLfoMaxLagS : dtBlock;
+            lfoLag_ = (deficit > 1e-9) ? std::min(maxLag, deficit) : 0.0;
             if (lfoLag_ > 0.0) ++lfoLagBlocks_;
             workLeft_ -= (int) (lfo_.work() * kLfoAsmCostRatio);
             if (workLeft_ < 8) workLeft_ = 8;
@@ -659,6 +670,16 @@ private:
 #define SIREN_LFO_SHARE 0.40f
 #endif
     static constexpr float kLfoShare        = SIREN_LFO_SHARE;
+    // Plafond du LFO en assemblees PAR IMAGE, 0 = pas de plafond (defaut). Un
+    // basculement du carre lui demande ~700 assemblees de 11 noeuds d'un coup, soit
+    // 4,6 ms en un seul bloc sur un Cortex-A53 : ingerable en 16 images, sans objet
+    // en 256. Plafonne, le front s'etale sur plusieurs blocs et les noeuds du LFO
+    // prennent quelques ms de retard, rattrape ensuite.
+#ifndef SIREN_LFO_WORK_PER_FRAME
+#define SIREN_LFO_WORK_PER_FRAME 0
+#endif
+    static constexpr int    kLfoWorkPerFrame = SIREN_LFO_WORK_PER_FRAME;
+    static constexpr double kLfoMaxLagS      = 0.100;
 #ifndef SIREN_TIME_SHARE
 // 0,85 et non 0,75 : le pire bloc de la fin de mort demande 75,02 % de
 // l'echeance quand le raffinement agit — il debordait donc de cinq assemblees

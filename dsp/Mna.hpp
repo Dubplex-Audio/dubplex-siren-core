@@ -75,6 +75,7 @@ public:
 
     // Avance de dt en resserrant le pas la ou Newton coince.
     int  work() const { return work_; }
+    void keepStepAcrossCuts(bool on) { keepH_ = on; }
     void resetWork()  { work_ = 0; }
 
 
@@ -91,12 +92,17 @@ public:
     bool run(double dt, int budget, double* advanced, double hmin = 1e-14)
     {
         const int w0 = work_;
-        double t = 0.0, h = dt;
+        // Coupe au dernier appel, on reprend au pas qu'il avait atteint. Repartir
+        // du pas plein, c'est redescendre par moities jusqu'a l'echelle du front a
+        // chaque appel : avec un budget serre, tout y passerait et le circuit
+        // n'avancerait plus.
+        double t = 0.0, h = (resumeH_ > 0.0) ? std::min(dt, resumeH_) : dt;
+        resumeH_ = 0.0;
         bool ok = false;
         for (int guard = 0; guard < 400000; ++guard)
         {
             if (t >= dt * (1.0 - 1e-12)) { ok = true; break; }
-            if (work_ - w0 >= budget) break;               // coupe : etat commis
+            if (work_ - w0 >= budget) { if (keepH_) resumeH_ = h; break; }   // coupe : etat commis
             h = std::min(h, dt - t);
             for (int i = 0; i < n_; ++i) vp_[i] = v_[i];
             if (newton(h)) { t += h; h = std::min(dt, 1.5 * h); }
@@ -141,6 +147,8 @@ private:
     double fx_[NMAX] = {0.0};
     double v_[NMAX] = {0.0}, vp_[NMAX] = {0.0};
     mutable int work_ = 0;             // assemblees depuis resetWork()
+    bool   keepH_ = false;             // voir run() : reprendre au pas atteint apres une coupe
+    double resumeH_ = 0.0;
     R res_[RMAX]; C cap_[CMAX]; D dio_[DMAX]; Q bjt_[QMAX]; I isrc_[4];
 
     static void jexp(double vd, double& val, double& slope)

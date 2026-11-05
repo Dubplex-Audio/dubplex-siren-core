@@ -225,6 +225,7 @@ public:
         }
         return done; }
     void  resetWork()  { m_.resetWork(); }
+    void  keepStepAcrossCuts(bool on) { m_.keepStepAcrossCuts(on); }
 
     void setVcc(float v) { m_.setFixed(vp_, v); vcc_ = v; }
 
