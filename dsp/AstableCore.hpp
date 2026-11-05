@@ -37,6 +37,24 @@
 #include <cmath>
 #include <algorithm>
 
+// Tolerances du solveur audio. Les valeurs par defaut sont celles de la mise au
+// point sur l'unite. Une cible lente peut les relacher : sur un Cortex-A53 a 44,1 kHz,
+// 1e-2 / 1e-4 / 1e-4 V / 1 V retirent 11 a 22 % du calcul, 21 % de plus en MODE 3 grace
+// aux diodes, pour une difference jugee inaudible a l'ecoute (A/B, novembre 2026) malgre
+// 7 dB d'energie hors harmoniques en plus sur le sifflement du MODE 4, mesures au banc.
+#ifndef SIREN_RELTOL_I
+#define SIREN_RELTOL_I 1e-3
+#endif
+#ifndef SIREN_RELTOL_V
+#define SIREN_RELTOL_V 1e-6
+#endif
+#ifndef SIREN_DIODE_TOL
+#define SIREN_DIODE_TOL 1e-7
+#endif
+#ifndef SIREN_DV_MAX
+#define SIREN_DV_MAX 0.5
+#endif
+
 #if defined(_MSC_VER)
 #define SIREN_FORCE_INLINE __forceinline
 #else
@@ -457,7 +475,7 @@ private:
     static constexpr double kGmin  = 1e-9;    // fuite : 1 GOhm par noeud
     static constexpr double kVmaxJ = 1.0;     // au-dela, exponentielle prolongee
     static constexpr double kVjOff = -80.0 * kVt; // en-deca, exp(v/Vt) ne compte plus
-    static constexpr double kDvMax = 0.5;     // deplacement max d'une jonction
+    static constexpr double kDvMax = SIREN_DV_MAX;     // deplacement max d'une jonction
     // exp(kVmaxJ / kVt), calculee au chargement et non en statique locale de
     // jexp() : voir Mna.hpp, meme raison (garde d'initialisation sur le fil
     // audio).
@@ -527,9 +545,9 @@ private:
     // Plancher 1 ns : a 5 ns il reste 2 % d'assemblees de plus.
     static constexpr double kAnticipVb   = 0.62;
     static constexpr double kAnticipHMin = 1e-9;
-    static constexpr double kReltolI = 1e-3;  // tolerance SPICE sur les courants
+    static constexpr double kReltolI = SIREN_RELTOL_I;  // tolerance SPICE sur les courants
     static constexpr double kAbstol  = 1e-12;
-    static constexpr double kReltolV = 1e-6;   // tolerance relative en tension
+    static constexpr double kReltolV = SIREN_RELTOL_V;   // tolerance relative en tension
     static constexpr double kVntol   = 1e-9;   // plancher en volt
 
     // Entrailles en DOUBLE, interface en float. Le courant d'un condensateur
@@ -633,7 +651,7 @@ private:
             const double df = -1.0 - RIs * sl / kVt;
             const double dv = std::clamp(-f / df, -kDvMax, kDvMax);
             vd += dv;
-            if (std::fabs(dv) < 1e-7) { done = true; break; }
+            if (std::fabs(dv) < SIREN_DIODE_TOL) { done = true; break; }
         }
         warm = vd;
         if (!done) jexp(vd, ex, sl);
