@@ -264,6 +264,11 @@ public:
         // budgets par bloc a 256 images — s'ecretait a chaque mort. C'est le
         // trapeze, dans cette seule fenetre, qui l'a rendu abordable : 0,3 us,
         // 0,82 budget au pire (AstableCore).
+#ifdef SIREN_MODE4_STEP_MAX
+        // Le surechantillonnage bas n'est retenu que la ou il ne s'entend pas : voir
+        // AstableCore::setStepMax(). Le MODE 4 garde le pas qui fixe sa hauteur.
+        core_.setStepMax(p_.mode == 3 ? (double) SIREN_MODE4_STEP_MAX : 1.0);
+#endif
         const bool refine = (p_.slowRefine != 0);
         core_.setSlowRefine(refine);
         slowRefineOn_ = refine;

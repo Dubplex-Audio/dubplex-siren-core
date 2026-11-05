@@ -256,6 +256,8 @@ private:
         // coince, puis repousser — et surtout ne pas repartir du debut.
         double t = 0.0;
         double h = dt;
+        // Pas maximal independant du surechantillonnage, voir setStepMax().
+        h = std::min(h, stepMax_);
         for (int guard = 0; guard < 200000; ++guard)
         {
             if (t >= dt * (1.0 - 1e-12)) return true;
@@ -429,8 +431,9 @@ private:
                 // TONE 4 : 49,6 -> 44,1 assemblees par echantillon (echecs 2,8 ->
                 // 1,9), -9 % de CPU ; banc A/B sous le bruit
                 // de fond d'un changement de taille de bloc sur les onze scenarios.
-                if (holdGrow_ > 0) { --holdGrow_; h = std::min((double) dt, h); }
+    if (holdGrow_ > 0) { --holdGrow_; h = std::min((double) dt, h); }
                 else h = std::min((double) dt, 1.5 * h);
+                h = std::min(h, stepMax_);
             }
             else
             {
@@ -447,6 +450,10 @@ private:
 public:
 
     void  setSlowRefine(bool on) { slowRefine_ = on; }
+    // Plafond du pas interne, en s. Sur le sifflement du MODE 4 la hauteur depend du pas :
+    // 2632 Hz en 4x, 2520 Hz en 2x a 44,1 kHz (75 cents, entendu a l'ecoute), et 2633 Hz en
+    // 2x des que le pas retrouve celui du 4x.
+    void  setStepMax(double s) { stepMax_ = s; }
     // Tous les noeuds a moins de eps de la masse : plus rien a resoudre.
     bool settled(double eps) const {
         for (int i = 0; i < N; ++i) if (std::fabs(v_[i]) > eps) return false;
@@ -767,6 +774,7 @@ private:
     }
     double iCap_[6] = {0, 0, 0, 0, 0, 0};
     double gCap_[6] = {0, 0, 0, 0, 0, 0};   // C/h, ou 2C/h au trapeze, pour le pas en cours
+    double stepMax_ = 1.0;                  // voir setStepMax(), 1 s = sans effet
     double gR1_ = 0.0, gR2_ = 0.0;          // conductances des deux echelles
     double dvPrev_[6] = {0, 0, 0, 0, 0, 0}; // tension de chaque condensateur au pas precedent
     bool   tr_ = false;              // trapeze pour ce pas (regime lent raffine)
