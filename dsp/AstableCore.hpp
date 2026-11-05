@@ -34,6 +34,7 @@
 // recherche lineaire sur ||F||, convergence jugee sur le residu en ampere, et
 // capacites de jonction — sans lesquelles un multivibrateur n'a tout simplement
 // aucune vitesse de basculement.
+#include "FastExp.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -597,7 +598,7 @@ private:
         // pour un resultat identique au bit pres : bloquees, elles le sont la
         // plupart du temps (sur 6 par assemblee, le claquage ne s'amorce jamais).
         if (vd < kVjOff)  { val = 0.0; slope = 0.0; }
-        else if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
+        else if (vd <= kVmaxJ) { val = jexpValue(vd / kVt); slope = val; }
         else              { val = kEmax * (1.0 + (vd - kVmaxJ) / kVt); slope = kEmax; }
     }
 
@@ -811,30 +812,48 @@ private:
             if (std::fabs(m[i][k]) > std::fabs(m[k][k]))
                 for (int j = k; j <= N; ++j) std::swap(m[k][j], m[i][j]);
     }
-    SIREN_FORCE_INLINE static void eliminate(double m[N][N + 1], int k)
+    SIREN_FORCE_INLINE static void eliminate(double m[N][N + 1], int k, double* inv)
     {
+#ifdef SIREN_PIVOT_INV
+        inv[k] = 1.0 / m[k][k];
+#else
+        (void) inv;
+#endif
         for (int i = k + 1; i < N; ++i)
             if (m[i][k] != 0.0)
             {
+#ifdef SIREN_PIVOT_INV
+                const double f = m[i][k] * inv[k];
+#else
                 const double f = m[i][k] / m[k][k];
+#endif
                 for (int j = k + 1; j <= N; ++j) m[i][j] -= f * m[k][j];
             }
     }
     static bool solve4(const double A[N][N], const double* b, double* x)
     {
+        double inv[N];
         double m[N][N + 1] = {
             { A[0][0], A[0][1], A[0][2], A[0][3], b[0] },
             { A[1][0], A[1][1], A[1][2], A[1][3], b[1] },
             { A[2][0], A[2][1], A[2][2], A[2][3], b[2] },
             { A[3][0], A[3][1], A[3][2], A[3][3], b[3] } };
-        pivot(m, 0); if (std::fabs(m[0][0]) < 1e-300) return false; eliminate(m, 0);
-        pivot(m, 1); if (std::fabs(m[1][1]) < 1e-300) return false; eliminate(m, 1);
-        pivot(m, 2); if (std::fabs(m[2][2]) < 1e-300) return false; eliminate(m, 2);
+        pivot(m, 0); if (std::fabs(m[0][0]) < 1e-300) return false; eliminate(m, 0, inv);
+        pivot(m, 1); if (std::fabs(m[1][1]) < 1e-300) return false; eliminate(m, 1, inv);
+        pivot(m, 2); if (std::fabs(m[2][2]) < 1e-300) return false; eliminate(m, 2, inv);
         if (std::fabs(m[3][3]) < 1e-300) return false;
+#ifdef SIREN_PIVOT_INV
+        inv[3] = 1.0 / m[3][3];
+        x[3] = m[3][4] * inv[3];
+        x[2] = (m[2][4] - m[2][3] * x[3]) * inv[2];
+        x[1] = (m[1][4] - m[1][2] * x[2] - m[1][3] * x[3]) * inv[1];
+        x[0] = (m[0][4] - m[0][1] * x[1] - m[0][2] * x[2] - m[0][3] * x[3]) * inv[0];
+#else
         x[3] = m[3][4] / m[3][3];
         x[2] = (m[2][4] - m[2][3] * x[3]) / m[2][2];
         x[1] = (m[1][4] - m[1][2] * x[2] - m[1][3] * x[3]) / m[1][1];
         x[0] = (m[0][4] - m[0][1] * x[1] - m[0][2] * x[2] - m[0][3] * x[3]) / m[0][0];
+#endif
         for (int i = 0; i < N; ++i) if (!std::isfinite(x[i])) return false;
         return true;
     }

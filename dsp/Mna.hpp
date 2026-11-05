@@ -23,6 +23,7 @@
 //     decoupage uniforme impose le meme pas partout, alors que la transition
 //     demande la nanoseconde quand le reste du cycle se contente de la
 //     microseconde : mesure faite, il echoue sur 19944 pas sur 20000.
+#include "FastExp.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -155,7 +156,7 @@ private:
     {
         // Jonction bloquee : voir AstableCore::jexp, meme coupure, meme raison.
         if (vd < kVjOff)  { val = 0.0; slope = 0.0; }
-        else if (vd <= kVmaxJ) { val = std::exp(vd / kVt); slope = val; }
+        else if (vd <= kVmaxJ) { val = jexpValue(vd / kVt); slope = val; }
         else              { val = kEmax * (1.0 + (vd - kVmaxJ) / kVt); slope = kEmax; }
     }
 
